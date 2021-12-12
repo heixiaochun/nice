@@ -8,6 +8,7 @@ import org.springframework.http.server.ServletServerHttpRequest;
 import org.springframework.lang.Nullable;
 import org.springframework.util.StreamUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.ContentCachingResponseWrapper;
 
 import javax.servlet.FilterChain;
 import javax.servlet.ServletException;
@@ -32,28 +33,11 @@ public class RequestResponseLoggingFilter extends OncePerRequestFilter {
      */
     private static final String FORM_CONTENT_TYPE = "application/x-www-form-urlencoded";
 
-    /**
-     * The default value prepended to the log message written <i>after</i> a request is
-     * processed.
-     */
-    public static final String DEFAULT_AFTER_MESSAGE_PREFIX = "After request [";
-
-    /**
-     * The default value appended to the log message written <i>after</i> a request is
-     * processed.
-     */
-    public static final String DEFAULT_AFTER_MESSAGE_SUFFIX = "]";
-
     private boolean includeQueryString = false;
 
     private boolean includeHeaders = false;
 
     private boolean includePayload = false;
-
-    private String afterMessagePrefix = DEFAULT_AFTER_MESSAGE_PREFIX;
-
-    private String afterMessageSuffix = DEFAULT_AFTER_MESSAGE_SUFFIX;
-
 
     /**
      * Set whether the query string should be included in the log message.
@@ -112,14 +96,6 @@ public class RequestResponseLoggingFilter extends OncePerRequestFilter {
     }
 
     /**
-     * Set the value that should be prepended to the log message written
-     * <i>after</i> a request is processed.
-     */
-    public void setAfterMessagePrefix(String afterMessagePrefix) {
-        this.afterMessagePrefix = afterMessagePrefix;
-    }
-
-    /**
      * The default value is "false" so that the filter may log a "before" message
      * at the start of request processing and an "after" message at the end from
      * when the last asynchronously dispatched thread is exiting.
@@ -139,27 +115,39 @@ public class RequestResponseLoggingFilter extends OncePerRequestFilter {
 
         boolean isFirstRequest = !isAsyncDispatch(request);
         HttpServletRequest requestToUse = request;
+        HttpServletResponse responseToUse = response;
 
         if (isIncludePayload() && isFirstRequest && !(request instanceof CachedBodyHttpServletRequest)) {
+            // 使用可多次读取的ServletRequest进行包装
             requestToUse = new CachedBodyHttpServletRequest(request);
         }
 
+        if (!(response instanceof ContentCachingResponseWrapper)) {
+            // 使用可多次读取的ServletResponse进行包装
+            responseToUse = new ContentCachingResponseWrapper(response);
+        }
+
         if (isFirstRequest) {
-            logBeforeMessage(requestToUse);
+            // 打印请求报文
+            printRequestLog(requestToUse);
         }
         try {
-            filterChain.doFilter(requestToUse, response);
+            filterChain.doFilter(requestToUse, responseToUse);
         } finally {
             if (!isAsyncStarted(requestToUse)) {
-                //afterRequest(requestToUse, getAfterMessage(requestToUse));
+                ContentCachingResponseWrapper responseWrapper = (ContentCachingResponseWrapper) responseToUse;
+                // 打印返回报文
+                printResponseLog(responseWrapper);
+                // 重新返回流
+                responseWrapper.copyBodyToResponse();
             }
         }
     }
 
     /**
-     * 记录请求前的日志信息
+     * 记录请求的日志信息
      */
-    private void logBeforeMessage(HttpServletRequest request) {
+    private void printRequestLog(HttpServletRequest request) {
         // 记录请求URL
         StringBuilder uri = new StringBuilder();
         uri.append("Request URL: ");
@@ -192,38 +180,10 @@ public class RequestResponseLoggingFilter extends OncePerRequestFilter {
         }
     }
 
-    /**
-     * Get the message to write to the log after the request.
-     *
-     * @see #createMessage
-     */
-    private String getAfterMessage(HttpServletRequest request) {
-        return createMessage(request, this.afterMessagePrefix, this.afterMessageSuffix);
-    }
-
-    /**
-     * Create a log message for the given request, prefix and suffix.
-     * <p>If {@code includeQueryString} is {@code true}, then the inner part
-     * of the log message will take the form {@code request_uri?query_string};
-     * otherwise the message will simply be of the form {@code request_uri}.
-     * <p>The final message is composed of the inner part as described and
-     * the supplied prefix and suffix.
-     */
-    protected String createMessage(HttpServletRequest request, String prefix, String suffix) {
-        StringBuilder msg = new StringBuilder();
-        msg.append(prefix);
-        msg.append(request.getMethod()).append(' ');
-        msg.append(request.getRequestURI());
-
-        return msg.toString();
-    }
 
     /**
      * Extracts the message payload portion of the message created by
-     * {@link #createMessage(HttpServletRequest, String, String)} when
      * {@link #isIncludePayload()} returns true.
-     *
-     * @since 5.0.3
      */
     @Nullable
     protected String getMessagePayload(HttpServletRequest request) {
@@ -241,6 +201,15 @@ public class RequestResponseLoggingFilter extends OncePerRequestFilter {
         String contentType = request.getContentType();
         return (contentType != null && contentType.contains(FORM_CONTENT_TYPE) &&
                 HttpMethod.POST.matches(request.getMethod()));
+    }
+
+    /**
+     * 记录返回的日志信息
+     */
+    private void printResponseLog(ContentCachingResponseWrapper responseWrapper) {
+        String responseStr = new String(responseWrapper.getContentAsByteArray(),
+                StandardCharsets.UTF_8);
+        logger.info("Response: {}", responseStr);
     }
 
 }

@@ -18,7 +18,6 @@ public class LoggingConfiguration {
         filter.setIncludeQueryString(true);
         filter.setIncludeHeaders(true);
         filter.setIncludePayload(true);
-        filter.setAfterMessagePrefix("REQUEST DATA : ");
         return filter;
     }
 
