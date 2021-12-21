@@ -8,5 +8,12 @@ spring:
     date-format: yyyy-MM-dd HH:mm:ss.SSS
     time-zone: GMT+8
 server:
+  port: 8080
   servlet:
     context-path: /nice
+  ssl:
+    enabled: false
+    key-store-type: PKCS12
+    key-store: ${HTTPS-KEY-STORE-LOCATION}
+    key-store-password: ${HTTPS-KEY-STORE-PASSWORD}
+    key-alias: ${HTTPS-KEY-STORE-ALIAS}
